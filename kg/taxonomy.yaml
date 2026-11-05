@@ -1,0 +1,106 @@
+# Controlled vocabulary + rule-based tagging for the knowledge graph.
+#
+# Edit freely, then run `stack-kg ingest --full` (a changed taxonomy re-tags everything anyway,
+# because its hash is part of every note's content hash).
+#
+# Facets: topic (what it is about), tech (tools / languages), type (kind of note), status.
+#
+# Per tag:
+#   aliases: other spellings that resolve to this tag (frontmatter, #tags, queries)
+#   match:   case-insensitive regexes. Hit in the title -> confidence 0.9,
+#            >= 2 hits in the body -> confidence 0.6 (only the strongest `max_body_tags`)
+#
+# Tags you write yourself (frontmatter `tags:` or inline #tags) always count with
+# confidence 1.0, even if they are not listed here (facet "topic" then).
+# Searches only use edges with confidence >= 0.6.
+
+vault:
+  skip_folders: [.obsidian, .trash, .git, attachments, templates]
+  body_limit: 50000    # characters of note body kept for full-text search
+  max_body_tags: 5     # at most this many tags per note from body matches
+
+tags:
+  topic:
+    llm:
+      aliases: [llms, language-model]
+      match: ['\bLLMs?\b', '\blanguage models?\b', '\binference\b']
+    rag:
+      aliases: [retrieval, retrieval-augmented-generation]
+      match: ['\bRAG\b', '\bretrieval[- ]augmented\b', '\bretriev(al|er)\b']
+    embeddings:
+      aliases: [embedding, vectors]
+      match: ['\bembeddings?\b', '\bvector (index|search|store)\b']
+    knowledge-graph:
+      aliases: [kg, graph]
+      match: ['\bknowledge graph\b', '\bcypher\b']
+    agents:
+      aliases: [agent, agentic]
+      match: ['\bagents?\b', '\btool[- ]calling\b']
+    observability:
+      aliases: [tracing, monitoring, o11y]
+      match: ['\bobservability\b', '\btrac(e|es|ing)\b', '\bOTLP\b', '\bOpenTelemetry\b']
+    security:
+      aliases: [auth, secrets]
+      match: ['\bAPI keys?\b', '\bauthenticat\w*\b', '\bsecrets?\b']
+    performance:
+      aliases: [perf, memory]
+      match: ['\blatency\b', '\bthroughput\b', '\bRSS\b', '\bmemory budget\b']
+    deployment:
+      aliases: [ops, deploy]
+      match: ['\blaunchd\b', '\bdocker compose\b', '\bdeploy\w*\b']
+  tech:
+    python:
+      aliases: [py]
+      match: ['\bpython\b', '\buv\b', '\bpytest\b']
+    rust:
+      aliases: [rs, cargo]
+      match: ['\brust\b', '\bcargo\b']
+    falkordb:
+      aliases: [redisgraph]
+      match: ['\bFalkorDB\b']
+    sqlite:
+      match: ['\bSQLite\b', '\bsqlite-vec\b']
+    ollama:
+      match: ['\bollama\b']
+    uzu:
+      match: ['\buzu\b']
+    langfuse:
+      match: ['\blangfuse\b']
+    langgraph:
+      aliases: [langchain]
+      match: ['\blanggraph\b', '\blangchain\b']
+    mcp:
+      aliases: [model-context-protocol]
+      match: ['\bMCP\b', '\bmodel context protocol\b']
+    open-webui:
+      aliases: [openwebui, owui]
+      match: ['\bopen ?webui\b']
+    docker:
+      aliases: [orbstack, compose, containers]
+      match: ['\bdocker\b', '\borbstack\b', '\bcontainers?\b']
+  type:
+    decision:
+      aliases: [adr, decisions]
+    howto:
+      aliases: [how-to, guide, runbook]
+    reference:
+      aliases: [ref, docs]
+    idea:
+      aliases: [ideas]
+    log:
+      aliases: [journal, diary]
+    gotcha:
+      aliases: [pitfall]
+    fact: {}
+    todo:
+      aliases: [task]
+    question:
+      aliases: [open-question]
+  status:
+    active:
+      aliases: [in-progress, wip, doing]
+    done:
+      aliases: [closed, finished]
+    draft: {}
+    archived:
+      aliases: [archive, obsolete]

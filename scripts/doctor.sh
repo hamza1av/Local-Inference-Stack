@@ -43,7 +43,7 @@ chk() { # name url required
   if http "$2"; then ok "$1"; elif [[ $3 == req ]]; then bad "$1 down ($2)"; else warn "$1 off ($2)"; fi; }
 chk "gateway"        "http://127.0.0.1:${GATEWAY_PORT:-8088}/health" req
 chk "Open WebUI"     "http://127.0.0.1:${OWUI_PORT:-3000}/health" req
-chk "recorder"       "http://127.0.0.1:${RECORDER_PORT:-4320}/" opt
+chk "recorder"       "http://127.0.0.1:${RECORDER_HEALTH_PORT:-4321}/health" req
 chk "kg MCP"         "http://127.0.0.1:${KG_MCP_PORT:-8090}/health" opt
 chk "rag MCP"        "http://127.0.0.1:${RAG_MCP_PORT:-8091}/health" opt
 chk "agents"         "http://127.0.0.1:${AGENTS_PORT:-8092}/health" opt

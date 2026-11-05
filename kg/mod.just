@@ -21,7 +21,7 @@ down:
 install: up
     uv sync --project {{kg_dir}} --no-dev
     {{run}} mkdir -p "$KG_VAULT"
-    {{kg_dir}}/../scripts/launchd.sh install kg-mcp --workdir {{kg_dir}} -- uv run --project {{kg_dir}} stack-kg serve
+    {{kg_dir}}/../scripts/launchd.sh install kg-mcp --workdir {{kg_dir}} -- {{kg_dir}}/.venv/bin/stack-kg serve
     @echo "MCP: http://127.0.0.1:$({{run}} printenv KG_MCP_PORT)/mcp"
 
 # remove the launchd agent and stop FalkorDB (graph data and vault are kept)

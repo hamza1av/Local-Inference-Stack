@@ -9,7 +9,7 @@ cli := envrun + " uv run --quiet --project " + dir + " stack-rag"
 install:
     uv sync --quiet --project {{dir}}
     {{envrun}} sh -c 'mkdir -p "$STACK_DATA/rag/inbox"'
-    {{launchd}} install rag-mcp --workdir {{dir}} -- uv run --project {{dir}} stack-rag serve
+    {{launchd}} install rag-mcp --workdir {{dir}} -- {{dir}}/.venv/bin/stack-rag serve
 
 # remove the launchd service (keeps the index in $STACK_DB)
 uninstall:

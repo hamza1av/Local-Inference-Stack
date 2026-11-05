@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 from collections.abc import Iterator
 from typing import Any
 
@@ -37,8 +38,9 @@ def setup() -> bool:
         return False
     # exporter failures (recorder down) must not spam the logs
     for name in ("opentelemetry.exporter.otlp.proto.http", "opentelemetry.sdk._shared_internal",
-                 "opentelemetry.sdk.trace.export", "langfuse"):
+                 "opentelemetry.sdk.trace.export", "langfuse", "langfuse.media"):
         logging.getLogger(name).setLevel(logging.CRITICAL)
+    os.environ.setdefault("OTEL_SERVICE_NAME", "stack-agents")
     try:
         from langfuse import Langfuse
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor

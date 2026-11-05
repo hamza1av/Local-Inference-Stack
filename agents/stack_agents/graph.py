@@ -1,6 +1,7 @@
 """The agent graph: route the user turn with a decision model, then run a small tool loop.
 
-    START -> router --(choice question via decide())--> chat | knowledge | documents | data | memory | <custom> -> END
+    START -> router --(choice question via decide())--> <route>_agent -> END
+               routes: chat | knowledge | documents | data | memory | <custom from mcp_servers.toml>
 
 * router     one `choice` question to the decision API (falls back to the `task` model).
              Confidence below AGENTS_ROUTE_MIN_CONFIDENCE -> `chat` (no tools = no harm).
@@ -218,10 +219,12 @@ def build_graph(deps: Deps | None = None, checkpointer: Any = None):
     g = StateGraph(AgentState)
     g.add_node("router", router)
     for r in deps.routes:
-        g.add_node(r, make_route(r))
-        g.add_edge(r, END)
+        # node names get a suffix: a node called "data" yields checkpoint namespaces like
+        # "data:<uuid>", which tracing SDKs mistake for data: URIs
+        g.add_node(f"{r}_agent", make_route(r))
+        g.add_edge(f"{r}_agent", END)
     g.add_edge(START, "router")
-    g.add_conditional_edges("router", lambda s: s["route"], {r: r for r in deps.routes})
+    g.add_conditional_edges("router", lambda s: s["route"], {r: f"{r}_agent" for r in deps.routes})
     return g.compile(checkpointer=checkpointer)
 
 

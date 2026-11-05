@@ -280,6 +280,9 @@ async fn non_stream_chat_and_embeddings() {
     let env = setup("").await;
     let r = env
         .post("/v1/chat/completions", json!({"model": "small", "messages": [{"role": "user", "content": "x"}]}))
+        .header("x-thread-id", "t-1")
+        .header("x-openwebui-chat-id", "chat-9")
+        .header("x-other", "dropped")
         .send()
         .await
         .unwrap();
@@ -288,6 +291,13 @@ async fn non_stream_chat_and_embeddings() {
     assert_eq!(rid.len(), 32);
     let v: Value = r.json().await.unwrap();
     assert_eq!(v["choices"][0]["message"]["content"], "echo x");
+    {
+        let seen = env.mock.seen.lock().unwrap();
+        let h = &seen.iter().find(|s| s.0 == "/v1/chat/completions").unwrap().1;
+        assert_eq!(h["x-thread-id"], "t-1");
+        assert_eq!(h["x-openwebui-chat-id"], "chat-9");
+        assert!(h.get("x-other").is_none());
+    }
     let row = env.row(&rid).await;
     assert_eq!((row["prompt_tokens"].clone(), row["completion_tokens"].clone()), (json!(5), json!(3)));
     assert_eq!(row["stream"], 0);

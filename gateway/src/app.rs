@@ -566,6 +566,14 @@ async fn proxy(
     if let Some(ts) = headers.get("tracestate") {
         req = req.header("tracestate", ts);
     }
+    // conversation identity for stateful backends (agents): explicit thread id and
+    // Open WebUI's user/chat headers (ENABLE_FORWARD_USER_INFO_HEADERS=true)
+    for (name, value) in headers.iter() {
+        let n = name.as_str();
+        if n == "x-thread-id" || n.starts_with("x-openwebui-") {
+            req = req.header(name, value);
+        }
+    }
     if let Some(k) = &bcfg.api_key {
         req = req.bearer_auth(k);
     }

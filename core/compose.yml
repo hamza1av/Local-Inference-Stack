@@ -17,6 +17,8 @@ services:
       OPENAI_API_BASE_URL: http://host.docker.internal:8088/v1
       OPENAI_API_KEY: ${OWUI_API_KEY}
       TASK_MODEL_EXTERNAL: task
+      # send X-OpenWebUI-Chat-Id etc. so the `agent` model keeps one thread per chat
+      ENABLE_FORWARD_USER_INFO_HEADERS: "true"
       # web search
       ENABLE_WEB_SEARCH: "true"
       WEB_SEARCH_ENGINE: searxng

@@ -1,0 +1,30 @@
+[project]
+name = "stack-kg"
+version = "0.1.0"
+description = "Generic knowledge graph (FalkorDB) over a markdown folder and git repos, with an MCP server"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "falkordb==1.8.0",
+    "httpx>=0.27",
+    "mcp>=1.26,<2",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0.2",
+    "uvicorn>=0.30",
+]
+
+[project.scripts]
+stack-kg = "stack_kg.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stack_kg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

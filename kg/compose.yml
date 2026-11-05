@@ -1,0 +1,36 @@
+# Knowledge graph store: FalkorDB (graph on Redis) + its browser UI, local only.
+#
+#   just kg::up / just kg::down          (data stays in the volume)
+#
+# Redis protocol: 127.0.0.1:${FALKORDB_PORT}  (graph name: ${KG_GRAPH})
+# Browser UI:     http://127.0.0.1:${FALKORDB_UI_PORT}  - connect to host "localhost",
+#                 port 6379 (the UI runs inside the same container).
+#                 Set KG_BROWSER=0 in .env to skip the UI and save memory.
+#
+# The graph is only an index: `stack-kg ingest --full` rebuilds it from the vault.
+name: stack-kg
+
+services:
+  falkordb:
+    image: docker.io/falkordb/falkordb:v4.22.1
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:${FALKORDB_PORT:-6390}:6379
+      - 127.0.0.1:${FALKORDB_UI_PORT:-3011}:3000
+    mem_limit: 512m
+    environment:
+      BROWSER: ${KG_BROWSER:-1}
+      # AOF + periodic snapshots so a restart loses nothing
+      REDIS_ARGS: --appendonly yes --appendfsync everysec --save 300 10
+      # few threads = small footprint; generous timeout for graph expansion queries
+      FALKORDB_ARGS: THREAD_COUNT 2 MAX_QUEUED_QUERIES 25 TIMEOUT 10000 RESULTSET_SIZE 10000
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  falkordb_data:

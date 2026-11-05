@@ -1,0 +1,226 @@
+# Langfuse (self-hosted, on demand) + replayer.
+#
+#   just obs::langfuse       # start; the replayer loads the recorder spool into it
+#   just obs::langfuse-off   # stop (data stays in the volumes)
+#   just obs::drain          # start, wait until the spool is loaded, stop again
+#
+# Traces are recorded by the always-on recorder (../recorder, project stack-obs), so
+# starting/stopping this stack never stops recording.
+#
+#   app --OTLP--> recorder 127.0.0.1:${RECORDER_PORT} --> ${STACK_DATA}/spool/traces*.jsonl
+#   replayer (reads spool) --> langfuse-web --> worker --> ClickHouse / Postgres / MinIO
+#
+# Every secret comes from the repo .env (run via scripts/env-run.sh); there are no
+# defaults, compose refuses to start when one is missing. Every port is bound to
+# 127.0.0.1. Nothing restarts on its own (restart: "no").
+name: stack-langfuse
+
+x-required:
+  # ${VAR:?} fails fast with a clear message instead of starting with a blank secret
+  - &db_url postgresql://postgres:${LANGFUSE_DB_PASSWORD:?missing in .env}@postgres:5432/postgres
+
+services:
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:${LANGFUSE_VERSION:-4}
+    restart: "no"
+    depends_on: &langfuse-depends-on
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    mem_limit: 768m
+    environment: &langfuse-env
+      NODE_OPTIONS: --max-old-space-size=${LANGFUSE_WORKER_HEAP_MB:-384}
+      NEXTAUTH_URL: ${LANGFUSE_URL:-http://127.0.0.1:3020}
+      DATABASE_URL: *db_url
+      SALT: ${LANGFUSE_SALT:?missing in .env}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?missing in .env}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?missing in .env}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      # event + batch-export storage: internal MinIO
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:?missing in .env}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      # media: presigned URLs are opened by the browser/SDK, so this endpoint is the
+      # host-published MinIO port (127.0.0.1 only)
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:?missing in .env}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://127.0.0.1:${LANGFUSE_MINIO_PORT:-3021}
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+      LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+      LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
+      LANGFUSE_S3_BATCH_EXPORT_REGION: auto
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: http://127.0.0.1:${LANGFUSE_MINIO_PORT:-3021}
+      LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:?missing in .env}
+      LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:?missing in .env}
+      REDIS_TLS_ENABLED: "false"
+
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:${LANGFUSE_VERSION:-4}
+    restart: "no"
+    depends_on: *langfuse-depends-on
+    ports:
+      - 127.0.0.1:${LANGFUSE_PORT:-3020}:3000
+    mem_limit: 1280m
+    environment:
+      <<: *langfuse-env
+      NODE_OPTIONS: --max-old-space-size=${LANGFUSE_WEB_HEAP_MB:-1024}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?missing in .env}
+      HOSTNAME: 0.0.0.0
+      AUTH_DISABLE_SIGNUP: "true"
+      # headless init (first start only): org, project, API key pair, admin user
+      LANGFUSE_INIT_ORG_ID: stack
+      LANGFUSE_INIT_ORG_NAME: Local Stack
+      LANGFUSE_INIT_PROJECT_ID: stack
+      LANGFUSE_INIT_PROJECT_NAME: stack
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?missing in .env}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?missing in .env}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_ADMIN_EMAIL:?missing in .env}
+      LANGFUSE_INIT_USER_NAME: Admin
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_ADMIN_PASSWORD:?missing in .env}
+    # healthy only once the seeded project key authenticates (the replayer waits for this)
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/public/projects',{headers:{Authorization:'Basic '+Buffer.from(process.env.LANGFUSE_INIT_PROJECT_PUBLIC_KEY+':'+process.env.LANGFUSE_INIT_PROJECT_SECRET_KEY).toString('base64')}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 90
+      start_period: 20s
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:${LANGFUSE_CLICKHOUSE_VERSION:-26.3.62.3}
+    restart: "no"
+    user: "101:101"
+    mem_limit: 768m
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?missing in .env}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/low-memory.xml:/etc/clickhouse-server/config.d/low-memory.xml:ro
+      - ./clickhouse/low-memory-users.xml:/etc/clickhouse-server/users.d/low-memory-users.xml:ro
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 1s
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    restart: "no"
+    entrypoint: sh
+    # create the 'langfuse' bucket before starting the service
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    mem_limit: 256m
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_PASSWORD:?missing in .env}
+      GOMEMLIMIT: 200MiB
+      MINIO_BROWSER: "off"
+    ports:
+      # S3 API for presigned media uploads/downloads from the browser / SDKs
+      - 127.0.0.1:${LANGFUSE_MINIO_PORT:-3021}:9000
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 1s
+
+  redis:
+    image: docker.io/redis:7
+    restart: "no"
+    # noeviction is required by Langfuse's queues (BullMQ)
+    command: >
+      --requirepass ${LANGFUSE_REDIS_PASSWORD:?missing in .env}
+      --maxmemory 96mb
+      --maxmemory-policy noeviction
+      --save 60 1
+    mem_limit: 128m
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${LANGFUSE_REDIS_PASSWORD:?missing in .env}
+
+  postgres:
+    image: docker.io/postgres:17
+    restart: "no"
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=32MB
+      -c max_connections=50
+      -c effective_cache_size=128MB
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:?missing in .env}
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Loads the recorder spool into Langfuse. See replay.yaml.
+  replayer:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    user: "0:0"
+    restart: "no"
+    command: ["--config=/etc/otelcol/replay.yaml"]
+    depends_on:
+      langfuse-web: { condition: service_healthy }
+    mem_limit: 256m
+    environment:
+      GOMEMLIMIT: 200MiB
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?missing in .env}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?missing in .env}
+      LANGFUSE_OTLP_ENDPOINT: http://langfuse-web:3000/api/public/otel
+    volumes:
+      - ./replay.yaml:/etc/otelcol/replay.yaml:ro
+      - ${STACK_DATA:?STACK_DATA not set (run via scripts/env-run.sh)}/spool:/spool:ro
+      - replay_state:/state
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  minio_data:
+  redis_data:
+  replay_state:

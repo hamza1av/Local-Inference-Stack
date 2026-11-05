@@ -1,0 +1,69 @@
+# Always-on trace recorder: accepts OTLP/HTTP traces and appends them to
+# $STACK_DATA/spool/traces*.jsonl. The replayer (../langfuse/replay.yaml) forwards
+# that spool into Langfuse later, so the heavy stack only runs on demand.
+#
+# HTTP headers are not part of OTLP data, so the ones that identify the sending
+# app are copied into resource attributes (langfuse.ingest.*). The replayer and
+# the duckdb queries derive the app name from them. Auth itself is not checked;
+# the receiver is only reachable on 127.0.0.1.
+extensions:
+  # GET http://127.0.0.1:${RECORDER_HEALTH_PORT}/health -> 200 when the pipeline runs
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /health
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        # "/" is a catch-all on the receiver's HTTP mux: the Langfuse SDK path
+        # (/api/public/otel/v1/traces) and the plain OTLP path (/v1/traces) both land
+        # here. Only a traces pipeline exists, so every POST is treated as traces.
+        traces_url_path: /
+        # LLM transcripts can be big. Bounded so a single request cannot blow the
+        # container's memory limit (rejected with 413 instead).
+        max_request_body_size: 33554432 # 32MiB
+        include_metadata: true # expose request headers to processors
+
+processors:
+  # refuse data (client retries) instead of getting OOM-killed
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: ${env:RECORDER_LIMIT_MIB:-200}
+    spike_limit_mib: ${env:RECORDER_SPIKE_MIB:-48}
+  resource/ingest-headers:
+    attributes:
+      - key: langfuse.ingest.public_key
+        from_context: metadata.x-langfuse-public-key
+        action: upsert
+      - key: langfuse.ingest.sdk_name
+        from_context: metadata.x-langfuse-sdk-name
+        action: upsert
+      - key: langfuse.ingest.sdk_version
+        from_context: metadata.x-langfuse-sdk-version
+        action: upsert
+
+exporters:
+  file:
+    path: /spool/traces.jsonl
+    # lumberjack rotation: traces.jsonl + traces-<timestamp>.jsonl backups.
+    # Cap = (max_backups + 1) * max_megabytes (~2 GB by default). The oldest
+    # backups are deleted, whether or not they were replayed: run `just obs::drain`
+    # (or the nightly job) regularly.
+    rotation:
+      max_megabytes: ${env:RECORDER_ROTATE_MB:-50}
+      max_backups: ${env:RECORDER_MAX_BACKUPS:-40}
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/ingest-headers]
+      exporters: [file]

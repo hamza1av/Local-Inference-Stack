@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Template for `just obs::nightly-install` (rendered by obs/obs.sh).
+     Runs `obs.sh drain` once a day: start Langfuse, wait until the spool is loaded,
+     stop it again. A run missed while the Mac sleeps is started at the next wake. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@ENV_RUN@</string>
+    <string>@OBS_SH@</string>
+    <string>drain</string>
+  </array>
+  <key>WorkingDirectory</key><string>@ROOT@</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>@HOUR@</integer>
+    <key>Minute</key><integer>@MINUTE@</integer>
+  </dict>
+  <key>RunAtLoad</key><false/>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>StandardOutPath</key><string>@LOG@</string>
+  <key>StandardErrorPath</key><string>@LOG@</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>@PATH@</string></dict>
+</dict>
+</plist>

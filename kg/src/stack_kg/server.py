@@ -141,9 +141,11 @@ def ingest_loop(kg: KG, interval: int, stop: threading.Event) -> None:
     while not stop.is_set():
         try:
             ingest.run(kg, log=log.info)
-        except Exception as e:
+            wait = max(interval, 30)
+        except Exception as e:  # e.g. FalkorDB container not up yet after login: retry soon
             log.warning("ingest failed: %s", e)
-        stop.wait(max(interval, 30))
+            wait = min(max(interval, 30), 60)
+        stop.wait(wait)
 
 
 def serve(kg: KG | None = None) -> None:

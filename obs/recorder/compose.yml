@@ -1,0 +1,30 @@
+# Always-on trace recorder, independent of the Langfuse stack (../langfuse).
+#
+#   just obs::install      # start (restarts with OrbStack/Docker)
+#
+# OTLP/HTTP on 127.0.0.1:${RECORDER_PORT} (Langfuse SDK path /api/public/otel/v1/traces
+# and plain /v1/traces), appended to ${STACK_DATA}/spool/traces*.jsonl. See recorder.yaml.
+name: stack-obs
+
+services:
+  recorder:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    restart: unless-stopped
+    user: "0:0" # the spool folder belongs to your macOS user
+    command: ["--config=/etc/otelcol/recorder.yaml"]
+    ports:
+      - 127.0.0.1:${RECORDER_PORT:-4320}:4318
+      - 127.0.0.1:${RECORDER_HEALTH_PORT:-4321}:13133
+    mem_limit: ${RECORDER_MEM_LIMIT:-64m}
+    environment:
+      GOMEMLIMIT: ${RECORDER_GOMEMLIMIT:-44MiB}
+      RECORDER_LIMIT_MIB: ${RECORDER_LIMIT_MIB:-40}
+      RECORDER_SPIKE_MIB: ${RECORDER_SPIKE_MIB:-12}
+      RECORDER_ROTATE_MB: ${RECORDER_ROTATE_MB:-50}
+      RECORDER_MAX_BACKUPS: ${RECORDER_MAX_BACKUPS:-40}
+    volumes:
+      - ./recorder.yaml:/etc/otelcol/recorder.yaml:ro
+      - ${STACK_DATA:?STACK_DATA not set (run via scripts/env-run.sh)}/spool:/spool
+    logging:
+      driver: json-file
+      options: { max-size: "1m", max-file: "2" }

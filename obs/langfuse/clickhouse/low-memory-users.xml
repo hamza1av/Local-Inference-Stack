@@ -1,0 +1,14 @@
+<!-- per-query limits for the default profile (Langfuse's queries are small on a laptop) -->
+<clickhouse>
+    <profiles>
+        <default>
+            <max_threads>2</max_threads>
+            <max_memory_usage>402653184</max_memory_usage> <!-- 384 MiB per query -->
+            <max_bytes_before_external_group_by>134217728</max_bytes_before_external_group_by>
+            <max_bytes_before_external_sort>134217728</max_bytes_before_external_sort>
+            <log_queries>0</log_queries>
+            <log_query_threads>0</log_query_threads>
+            <log_processors_profiles>0</log_processors_profiles>
+        </default>
+    </profiles>
+</clickhouse>

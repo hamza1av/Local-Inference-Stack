@@ -1,0 +1,88 @@
+# Replays $STACK_DATA/spool/traces*.jsonl (written by ../recorder/recorder.yaml) into Langfuse.
+# Read offsets and the send queue live in the replay_state volume, so nothing is
+# sent twice or lost across restarts (`just obs::purge` deletes it together with
+# Langfuse's data, so a fresh Langfuse gets the whole spool again).
+
+extensions:
+  file_storage:
+    directory: /state
+    create_directory: true
+  basicauth/langfuse:
+    client_auth:
+      username: ${env:LANGFUSE_PUBLIC_KEY}
+      password: ${env:LANGFUSE_SECRET_KEY}
+
+receivers:
+  otlp_json_file:
+    include: [/spool/traces*.jsonl]
+    start_at: beginning # new files are read from the top
+    storage: file_storage # remember offsets across restarts
+    # >= the recorder's max_request_body_size (32MiB) plus JSON overhead; the 1MiB
+    # default silently drops big traces
+    max_log_size: 64MiB
+
+processors:
+  # Tags every trace with app:<name>, so all apps share one project and can be
+  # filtered by tag. The app is resolved from (first match wins):
+  #   1. the Langfuse public key the app sent (header captured by the recorder):
+  #      pk-lf-<name> -> <name>   (UUID-style keys of real Langfuse projects are skipped)
+  #   2. service.name (unless it is the SDK default unknown_service:*)
+  #   3. "unknown"
+  # So a new app only needs its own public key (pk-lf-myapp) or OTEL_SERVICE_NAME;
+  # the recorder does not check keys, any pk-lf-* works.
+  transform/app-tag:
+    error_mode: ignore # a failing statement must never drop a span
+    trace_statements:
+      - context: resource
+        statements:
+          - set(resource.attributes["langfuse.ingest.app"], resource.attributes["langfuse.ingest.public_key"]) where IsMatch(resource.attributes["langfuse.ingest.public_key"], "^pk-lf-.+") and not IsMatch(resource.attributes["langfuse.ingest.public_key"], "^pk-lf-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-")
+          - replace_pattern(resource.attributes["langfuse.ingest.app"], "^pk-lf-", "")
+          - set(resource.attributes["langfuse.ingest.app"], resource.attributes["service.name"]) where resource.attributes["langfuse.ingest.app"] == nil and resource.attributes["service.name"] != nil and not IsMatch(resource.attributes["service.name"], "^unknown_service")
+          - set(resource.attributes["langfuse.ingest.app"], "unknown") where resource.attributes["langfuse.ingest.app"] == nil
+      - context: span
+        statements:
+          # added by the file receiver, meaningless in Langfuse
+          - delete_key(span.attributes, "log.file.name")
+          # keep tags the app sent under alternative keys Langfuse also reads
+          - set(span.attributes["langfuse.trace.tags"], span.attributes["langfuse.tags"]) where span.attributes["langfuse.trace.tags"] == nil
+          - set(span.attributes["langfuse.trace.tags"], span.attributes["ai.telemetry.metadata.tags"]) where span.attributes["langfuse.trace.tags"] == nil
+          - set(span.attributes["langfuse.trace.tags"], span.attributes["tag.tags"]) where span.attributes["langfuse.trace.tags"] == nil
+          # normalise string forms ('["a","b"]' or 'a,b') to a list before appending
+          - set(span.attributes["langfuse.trace.tags"], ParseJSON(span.attributes["langfuse.trace.tags"])) where IsString(span.attributes["langfuse.trace.tags"]) and IsMatch(span.attributes["langfuse.trace.tags"], "^\\s*\\[")
+          - set(span.attributes["langfuse.trace.tags"], Split(span.attributes["langfuse.trace.tags"], ",")) where IsString(span.attributes["langfuse.trace.tags"])
+          - append(span.attributes["langfuse.trace.tags"], Concat(["app:", resource.attributes["langfuse.ingest.app"]], ""))
+
+exporters:
+  otlp_http/langfuse:
+    endpoint: ${env:LANGFUSE_OTLP_ENDPOINT} # /v1/traces is appended
+    auth:
+      authenticator: basicauth/langfuse
+    headers:
+      x-langfuse-ingestion-version: "4"
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 0 # keep retrying until Langfuse is back
+    sending_queue:
+      enabled: true
+      block_on_overflow: true # never drop, slow the reader instead
+      storage: file_storage # the queue survives restarts
+
+service:
+  extensions: [file_storage, basicauth/langfuse]
+  telemetry:
+    logs:
+      level: warn
+    # scraped by `just obs::drain` from inside the compose network (not published)
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp_json_file]
+      processors: [transform/app-tag]
+      exporters: [otlp_http/langfuse]

@@ -1,0 +1,28 @@
+# MCP servers whose tools the agent may use. Override the path with AGENTS_MCP_CONFIG.
+#
+#   url         streamable-HTTP endpoint; ${VAR} / ${VAR:-default} expand from the environment (.env)
+#   route       graph route that gets the tools: chat | knowledge | documents | data | memory,
+#               or a NEW name -> becomes an extra router option (then `description` is required)
+#   tools       allow-list of tool names (empty/missing = all). Keep each route <= 4-5 tools:
+#               a 9B model picks tools worse the more it sees.
+#   enabled     false to switch a server off
+#   headers     optional HTTP headers (e.g. Authorization = "Bearer ${MY_TOKEN}")
+#
+# See agents/TOOLS.md ("Register an MCP server").
+
+[servers.kg]
+url = "http://127.0.0.1:${KG_MCP_PORT:-8090}/mcp"
+route = "knowledge"
+tools = ["kg_find", "kg_context", "kg_tags"]
+
+[servers.rag]
+url = "http://127.0.0.1:${RAG_MCP_PORT:-8091}/mcp"
+route = "documents"
+tools = ["rag_search", "rag_list_documents"]
+
+# Your own server (examples/my_mcp_server.py), as its own route:
+# [servers.units]
+# url = "http://127.0.0.1:${MY_MCP_PORT:-8099}/mcp"
+# route = "units"
+# description = "Converting units (length, weight, temperature, volume) or doing date arithmetic"
+# tools = ["convert_units", "days_between"]

@@ -1,0 +1,51 @@
+# Core UI: Open WebUI + SearXNG. Models are NOT here: they run natively (Metal) behind the
+# gateway on the host. Open WebUI only talks to the gateway (chat, task model, embeddings).
+name: stack-core
+
+services:
+  open-webui:
+    image: ${OWUI_IMAGE:-ghcr.io/open-webui/open-webui:main-slim}
+    restart: unless-stopped
+    ports:
+      - ${OWUI_BIND:-127.0.0.1}:${OWUI_PORT:-3000}:8080
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    mem_limit: 1200m
+    environment:
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
+      # all models via the gateway (OpenAI API); no Ollama connection in the UI
+      ENABLE_OLLAMA_API: "false"
+      OPENAI_API_BASE_URL: http://host.docker.internal:8088/v1
+      OPENAI_API_KEY: ${OWUI_API_KEY}
+      TASK_MODEL_EXTERNAL: task
+      # web search
+      ENABLE_WEB_SEARCH: "true"
+      WEB_SEARCH_ENGINE: searxng
+      SEARXNG_QUERY_URL: http://searxng:8080/search?q=<query>
+      # RAG embeddings: EmbeddingGemma on the host via the gateway (no model inside the container)
+      RAG_EMBEDDING_ENGINE: openai
+      RAG_OPENAI_API_BASE_URL: http://host.docker.internal:8088/v1
+      RAG_OPENAI_API_KEY: ${OWUI_API_KEY}
+      RAG_EMBEDDING_MODEL: ${STACK_EMBED_MODEL:-embeddinggemma}
+      RAG_EMBEDDING_MODEL_AUTO_UPDATE: "false"
+      RAG_RERANKING_MODEL_AUTO_UPDATE: "false"
+      ENABLE_SIGNUP: "true"
+      DEFAULT_USER_ROLE: pending
+      ANONYMIZED_TELEMETRY: "false"
+      SCARF_NO_ANALYTICS: "true"
+      DO_NOT_TRACK: "true"
+    volumes:
+      - open-webui:/app/backend/data
+    depends_on: [searxng]
+
+  searxng:
+    image: ${SEARXNG_IMAGE:-docker.io/searxng/searxng:latest}
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+      SEARXNG_BASE_URL: http://searxng:8080/
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+
+volumes:
+  open-webui:

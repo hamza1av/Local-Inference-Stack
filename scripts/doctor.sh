@@ -35,7 +35,12 @@ for p in "chat:${UZU_CHAT_PORT:-8000}:req" "task:${UZU_TASK_PORT:-8001}:req" "de
   else warn "uzu $n :$port off (just decide-on)"; fi
 done
 if http "${OLLAMA_URL:-http://127.0.0.1:11434}/api/version"; then
-  ollama list 2>/dev/null | grep -q "^${STACK_EMBED_MODEL:-embeddinggemma}" && ok "ollama + ${STACK_EMBED_MODEL}" || bad "embedding model missing (just embed-pull)"
+  # not grep -q: with pipefail, an early exit makes ollama fail with SIGPIPE
+  if ollama list 2>/dev/null | grep "^${STACK_EMBED_MODEL:-embeddinggemma}" >/dev/null; then
+    ok "ollama + ${STACK_EMBED_MODEL}"
+  else
+    bad "embedding model missing (just embed-pull)"
+  fi
 else bad "ollama down (brew services start ollama)"; fi
 
 section "Services"

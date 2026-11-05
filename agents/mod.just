@@ -4,7 +4,7 @@
 set positional-arguments := true
 
 env_run := "../scripts/env-run.sh"
-bin := justfile_directory() / ".venv/bin"
+bin := source_directory() / ".venv/bin"
 
 # create/refresh the virtualenv (uv)
 sync:
@@ -12,7 +12,7 @@ sync:
 
 # install the server as launchd service local.stack.agents (runs the venv binary directly: no uv wrapper process)
 install: sync
-    ../scripts/launchd.sh install agents --workdir "{{justfile_directory()}}" -- "{{bin}}/stack-agents" serve
+    ../scripts/launchd.sh install agents --workdir "{{source_directory()}}" -- "{{bin}}/stack-agents" serve
 
 uninstall:
     ../scripts/launchd.sh uninstall agents

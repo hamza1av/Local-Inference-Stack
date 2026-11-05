@@ -17,7 +17,12 @@ echo "  $(sysctl -n machdep.cpu.brand_string), ${mem_gb} GB"
 [[ -f .env ]] && ok ".env present" || bad ".env missing (just env)"
 for t in docker just uv cargo ollama sqlite3; do command -v $t >/dev/null && ok "$t" || bad "$t not installed (brew bundle)"; done
 command -v duckdb >/dev/null && ok duckdb || warn "duckdb not installed (optional: spool queries)"
-[[ -x "${UZU_DIR:-}/target/release/cli" ]] && ok "uzu built" || bad "uzu not built (just uzu-build)"
+if [[ -x "${UZU_DIR:-}/target/release/cli" ]]; then ok "uzu built"
+else
+  bad "uzu not built (just uzu-build)"
+  { xcrun --find metal || DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun --find metal; } >/dev/null 2>&1 \
+    || warn "Metal compiler missing: install Xcode + xcodebuild -downloadComponent MetalToolchain"
+fi
 docker info >/dev/null 2>&1 && ok "OrbStack/Docker running" || bad "container runtime not running"
 orb_mem=$(orbctl config show 2>/dev/null | awk '/^memory_mib:/{print $2}')
 [[ -n "$orb_mem" ]] && { [[ $orb_mem -le 4096 ]] && ok "OrbStack memory cap ${orb_mem} MiB" || warn "OrbStack memory cap ${orb_mem} MiB (16 GB host: orbctl config set memory_mib 4096)"; }

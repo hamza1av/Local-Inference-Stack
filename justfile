@@ -42,8 +42,15 @@ update:
     {{compose_core}} pull && {{compose_core}} up -d
 
 # --- models (uzu, native, launchd) --------------------------------------------
-# build uzu (once / after git pull)
+# build uzu (once / after git pull). Needs full Xcode for the Metal compiler; if
+# xcode-select points at the Command Line Tools we use Xcode.app via DEVELOPER_DIR.
 uzu-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! xcrun --find metal >/dev/null 2>&1 && [[ -d /Applications/Xcode.app ]]; then
+      export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+    fi
+    xcrun --find metal >/dev/null 2>&1 || { echo "Metal compiler missing: install Xcode, then: xcodebuild -downloadComponent MetalToolchain"; exit 1; }
     cd "$UZU_DIR" && cargo build --release -p cli
 
 # install chat + task model servers as launchd agents

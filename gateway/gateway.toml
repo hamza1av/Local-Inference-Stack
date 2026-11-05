@@ -1,0 +1,53 @@
+# stack-gateway routes. Strings may use ${VAR} / ${VAR:-default} from the environment
+# (.env is loaded first). Model aliases that expand to "" are ignored.
+#
+# A backend:
+#   url              base URL (no /v1); the client's path is appended (/v1/chat/completions, ...)
+#   models           values of "model" that route here (chat/completions and embeddings)
+#   paths            extra endpoints routed here regardless of "model" (e.g. /v1/decisions)
+#   rewrite_model    replace "model" in the request body before forwarding (optional)
+#   max_concurrency  requests in flight at once; the rest wait in a priority queue
+#   max_queue        waiting requests before new ones get 503 (default 32)
+#   queue_timeout_secs  max wait in the queue before 503 + Retry-After (default 120)
+#   stream_usage     "inject": add stream_options.include_usage=true to streaming requests;
+#                    "native": backend reports usage on its own (uzu); "none"
+#   health           GET path used by /health (default /v1/models)
+#   api_key          bearer key sent to the backend (optional)
+#   timeout_secs     upstream connect+response-header timeout (default 600)
+
+[server]
+# bind = "${GATEWAY_BIND:-127.0.0.1:8088}"
+# capture_content = true           # GATEWAY_CAPTURE_CONTENT
+# max_content_bytes = 65536
+
+[backends.uzu-chat]
+url = "http://127.0.0.1:${UZU_CHAT_PORT:-8000}"
+models = ["chat", "${STACK_CHAT_MODEL}"]
+max_concurrency = 1
+stream_usage = "native"
+
+[backends.uzu-task]
+url = "http://127.0.0.1:${UZU_TASK_PORT:-8001}"
+models = ["task", "${STACK_TASK_MODEL}"]
+max_concurrency = 1
+stream_usage = "native"
+
+[backends.agents]
+url = "http://127.0.0.1:${AGENTS_PORT:-8092}"
+models = ["agent"]
+max_concurrency = 4
+stream_usage = "none"
+health = "/health"
+
+[backends.ollama-embed]
+url = "${OLLAMA_URL:-http://127.0.0.1:11434}"
+models = ["embed", "embeddinggemma", "${STACK_EMBED_MODEL}"]
+rewrite_model = "${STACK_EMBED_MODEL:-embeddinggemma}"
+max_concurrency = 4
+health = "/api/version"
+
+[backends.uzu-decide]
+url = "http://127.0.0.1:${UZU_DECIDE_PORT:-8002}"
+paths = ["/v1/decisions", "/v1/systemone"]
+max_concurrency = 1
+queue_timeout_secs = 60
